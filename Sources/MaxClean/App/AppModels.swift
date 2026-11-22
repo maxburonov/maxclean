@@ -21,6 +21,7 @@ final class AppModels: ObservableObject {
     let smart = SmartModel()
     let updates = UpdatesModel()
     let protection = ProtectionModel()
+    let updater = AutoUpdater()
     /// Menyu panelidagi matnni yangilash (sozlama o'zgarganda)
     var statusTextChanged: (() -> Void)?
 
@@ -69,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let m = AppModels.shared
         m.smart.startBackground()
+        m.updater.startBackground()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let b = item.button {
@@ -165,12 +167,14 @@ struct MenuBarRoot: View {
             .environmentObject(AppModels.shared.memory)
             .environmentObject(AppModels.shared.junk)
             .environmentObject(AppModels.shared.smart)
+            .environmentObject(AppModels.shared.updater)
             .id(lang)
             .preferredColorScheme(.dark)
     }
 }
 
 struct MenuBarPanel: View {
+    @EnvironmentObject var updater: AutoUpdater
     @EnvironmentObject var memory: MemoryModel
     @EnvironmentObject var junk: JunkModel
     @EnvironmentObject var smart: SmartModel
@@ -251,6 +255,23 @@ struct MenuBarPanel: View {
                 .padding(12)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
                 .fadeIn(0.15)
+
+                // Yangi versiya chiqqan bo'lsa
+                if case .available(let v) = updater.state {
+                    Button { open(.settings) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.down.circle.fill").foregroundColor(Theme.green)
+                            Text(T("Max Clean \(v) chiqdi — yangilash", "Max Clean \(v) is out — update",
+                                   "Вышел Max Clean \(v) — обновить")).font(.caption.weight(.semibold))
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.green.opacity(0.12)))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 // Eng muhim maslahat
                 if let tip = smart.tips.first {

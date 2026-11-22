@@ -26,6 +26,7 @@ struct MaxCleanApp: App {
                 .environmentObject(m.smart)
                 .environmentObject(m.updates)
                 .environmentObject(m.protection)
+                .environmentObject(m.updater)
                 .frame(minWidth: 1080, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .id(lang) // til almashganda butun interfeys qayta chiziladi
@@ -256,6 +257,7 @@ struct SidebarItem: View {
 // MARK: - Bosh sahifa
 
 struct DashboardView: View {
+    @EnvironmentObject var updater: AutoUpdater
     @EnvironmentObject var junk: JunkModel
     @EnvironmentObject var memory: MemoryModel
     @EnvironmentObject var smart: SmartModel
@@ -287,6 +289,9 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                if updater.isAvailable {
+                    UpdateCard(compact: true).fadeIn(0)
+                }
                 if !fda {
                     Card {
                         HStack {
@@ -449,6 +454,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 PageHeader(icon: "gearshape", title: T("Sozlamalar", "Settings", "Настройки"),
                            subtitle: "Max Clean \(version) · Apple Silicon")
+                UpdateCard()
                 Card {
                     HStack {
                         Label(T("Til", "Language", "Язык"), systemImage: "globe").font(.headline)

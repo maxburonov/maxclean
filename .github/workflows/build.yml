@@ -13,8 +13,27 @@ jobs:
   build:
     runs-on: macos-latest
     timeout-minutes: 30
+    env:
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+      MAC_CERT_PASS: ${{ secrets.MAC_CERT_PASS }}
     steps:
       - uses: actions/checkout@v4
+
+      # Ixtiyoriy: "Max Clean Dev" sertifikati secret sifatida qo'shilgan bo'lsa — barqaror imzo.
+      # Shunda yangilanishdan keyin macOS Full Disk Access ruxsatini qayta so'ramaydi.
+      - name: Import signing certificate
+        if: env.MAC_CERT_P12 != ''
+        continue-on-error: true
+        run: |
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          KC="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Toolchain
         run: |

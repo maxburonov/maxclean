@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")"
 
-VERSION="${1:-0.1.5}"
+VERSION="${1:-0.1.6}"
 BUILD="$(date +%Y%m%d%H%M)"
 APP="build/Max Clean.app"
 
@@ -32,9 +32,9 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 # "Max Clean Dev" sertifikati bo'lsa — barqaror imzo (Full Disk Access har build'da yo'qolmaydi)
 IDENTITY="-"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "Max Clean Dev"; then IDENTITY="Max Clean Dev"; fi
+if security find-identity -p codesigning 2>/dev/null | grep -q "Max Clean Dev"; then IDENTITY="Max Clean Dev"; fi
 echo "▶ Imzolash ($IDENTITY)…"
-codesign --force --deep --sign "$IDENTITY" "$APP"
+codesign --force --deep --sign "$IDENTITY" "$APP" || codesign --force --deep --sign - "$APP"
 
 echo "▶ DMG…"
 DMG="build/MaxClean-$VERSION.dmg"
