@@ -1,0 +1,58 @@
+name: Build Max Clean
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+      MAC_CERT_PASS: ${{ secrets.MAC_CERT_PASS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ixtiyoriy: "Max Clean Dev" sertifikati secret sifatida qo'shilgan bo'lsa — barqaror imzo.
+      # Shunda yangilanishdan keyin macOS Full Disk Access ruxsatini qayta so'ramaydi.
+      - name: Import signing certificate
+        if: env.MAC_CERT_P12 != ''
+        continue-on-error: true
+        run: |
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          KC="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Build .app + .dmg
+        run: zsh build.sh "$(cat .version)"
+
+      # DMG GitHub Releases'ga joylanadi (Actions artifact xotirasi limitiga kirmaydi).
+      # Faqat main'ga push bo'lganda yoki qo'lda ishga tushirilganda.
+      - name: Publish release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(cat .version)"
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release upload "v$V" build/MaxClean-$V.dmg --clobber
+          else
+            gh release create "v$V" build/MaxClean-$V.dmg --target "$GITHUB_SHA" --title "Max Clean $V" --notes "Max Clean $V — Apple Silicon"
+          fi

@@ -1,0 +1,7 @@
+.build/
+build/
+build.log
+build.status
+.rebuild
+.DS_Store
+*.xcodeproj/xcuserdata/
