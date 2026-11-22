@@ -22,6 +22,8 @@ final class AppModels: ObservableObject {
     let updates = UpdatesModel()
     let protection = ProtectionModel()
     let updater = AutoUpdater()
+    let disk = DiskAnalyzerModel()
+    let smartScan = SmartScanModel()
     /// Menyu panelidagi matnni yangilash (sozlama o'zgarganda)
     var statusTextChanged: (() -> Void)?
 

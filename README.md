@@ -1,4 +1,4 @@
-# Max Clean 0.1.7
+# Max Clean 0.1.8
 
 Apple Silicon (M1–M4) Mac'lar uchun CleanMyMac alternativasi. SwiftUI'da yozilgan, obunasiz, hamma narsa lokal ishlaydi.
 

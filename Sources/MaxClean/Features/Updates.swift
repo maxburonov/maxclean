@@ -127,11 +127,12 @@ final class UpdatesModel: ObservableObject {
     @Published var appStoreCount = 0
     @Published var progress: Double = 0
 
-    func check() {
-        guard !checking else { return }
+    @discardableResult
+    func check() -> Task<Void, Never>? {
+        guard !checking else { return nil }
         checking = true
         progress = 0
-        Task {
+        return Task {
             // Info.plist o'qish asosiy oqimdan tashqarida
             let (sparkle, storeCount) = await Task.detached { () -> ([AppInfo], Int) in
                 let apps = AppScanner.installedApps()

@@ -151,11 +151,12 @@ final class ProtectionModel: ObservableObject {
 
     var dangerCount: Int { findings.filter { $0.level == .danger }.count }
 
-    func scan() {
-        guard !scanning else { return }
+    @discardableResult
+    func scan() -> Task<Void, Never>? {
+        guard !scanning else { return nil }
         scanning = true
         message = nil
-        Task {
+        return Task {
             let f = await Task.detached(priority: .userInitiated) { Protector.scan() }.value
             self.findings = f
             self.scanning = false

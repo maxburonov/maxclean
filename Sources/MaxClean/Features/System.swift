@@ -49,6 +49,15 @@ enum SystemStats {
         return s
     }
 
+    /// free — haqiqiy bo'sh joy; purgeable — macOS kerak bo'lsa bo'shatadigan (snapshotlar, keshlar)
+    static func diskDetailed() -> (total: Int64, free: Int64, purgeable: Int64) {
+        let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey,
+                                                                          .volumeAvailableCapacityForImportantUsageKey])
+        let free = Int64(v?.volumeAvailableCapacity ?? 0)
+        let important = v?.volumeAvailableCapacityForImportantUsage ?? free
+        return (Int64(v?.volumeTotalCapacity ?? 0), free, max(important - free, 0))
+    }
+
     static func disk() -> (total: Int64, free: Int64) {
         let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeTotalCapacityKey,
                                                                           .volumeAvailableCapacityForImportantUsageKey])

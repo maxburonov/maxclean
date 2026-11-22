@@ -27,6 +27,8 @@ struct MaxCleanApp: App {
                 .environmentObject(m.updates)
                 .environmentObject(m.protection)
                 .environmentObject(m.updater)
+                .environmentObject(m.disk)
+                .environmentObject(m.smartScan)
                 .frame(minWidth: 1080, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .id(lang) // til almashganda butun interfeys qayta chiziladi
@@ -39,7 +41,7 @@ struct MaxCleanApp: App {
 // MARK: - Bo'limlar
 
 enum Panel: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case dashboard, junk, large, duplicates, dev, uninstaller, updates, startup, protection, firewall, memory, maintenance, space, settings
+    case dashboard, junk, large, duplicates, dev, uninstaller, updates, startup, protection, firewall, memory, maintenance, analyzer, space, settings
     var id: String { rawValue }
 
     var title: String {
@@ -56,6 +58,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .maintenance: return T("Texnik xizmat", "Maintenance", "Обслуживание")
         case .space: return T("Disk xaritasi", "Disk Map", "Карта диска")
         case .updates: return T("Yangilanishlar", "Updates", "Обновления")
+        case .analyzer: return T("Disk tahlili", "Disk Analyzer", "Анализ диска")
         case .protection: return T("Himoya", "Protection", "Защита")
         case .settings: return T("Sozlamalar", "Settings", "Настройки")
         }
@@ -75,6 +78,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .maintenance: return "wrench.and.screwdriver"
         case .space: return "circle.hexagongrid"
         case .updates: return "arrow.down.app"
+        case .analyzer: return "chart.bar.doc.horizontal"
         case .protection: return "checkmark.shield"
         case .settings: return "gearshape"
         }
@@ -92,7 +96,7 @@ struct PanelGroup: Identifiable {
             PanelGroup(title: T("Ilovalar", "Applications", "Приложения"), items: [.uninstaller, .updates, .startup]),
             PanelGroup(title: T("Xavfsizlik", "Security", "Безопасность"), items: [.protection, .firewall]),
             PanelGroup(title: T("Tezlik", "Speed", "Скорость"), items: [.memory, .maintenance]),
-            PanelGroup(title: T("Disk", "Disk", "Диск"), items: [.space])
+            PanelGroup(title: T("Disk", "Disk", "Диск"), items: [.analyzer, .space])
         ]
     }
 }
@@ -141,6 +145,7 @@ struct RootView: View {
         case .maintenance: MaintenanceView()
         case .space: SpaceLensView()
         case .updates: UpdatesView()
+        case .analyzer: DiskAnalyzerView(go: { selection = $0 })
         case .protection: ProtectionView()
         case .settings: SettingsView()
         }
@@ -257,6 +262,9 @@ struct SidebarItem: View {
 // MARK: - Bosh sahifa
 
 struct DashboardView: View {
+    @EnvironmentObject var scan: SmartScanModel
+    @EnvironmentObject var dev: DevModel
+    @State private var confirmRun = false
     @EnvironmentObject var updater: AutoUpdater
     @EnvironmentObject var junk: JunkModel
     @EnvironmentObject var memory: MemoryModel
@@ -294,25 +302,32 @@ struct DashboardView: View {
     }
 
     var headline: String {
-        if junk.cleaning { return T("Tozalanmoqda…", "Cleaning…", "Очистка…") }
-        if junk.scanning { return T("Skanerlanmoqda…", "Scanning…", "Сканирование…") }
-        if junk.lastFreed > 0 && junk.total == 0 { return T("Mac toza!", "Your Mac is clean!", "Mac чист!") }
-        if junk.scannedOnce { return T("Tekshiruv yakunlandi", "Scan complete", "Проверка завершена") }
-        return T("Mac'ingizni tozalaymizmi?", "Ready to clean your Mac?", "Почистим ваш Mac?")
+        switch scan.phase {
+        case .scanning: return T("Mac tekshirilmoqda…", "Checking your Mac…", "Проверяем Mac…")
+        case .results: return T("\(Format.bytes(scan.estimate)) bo'shatish mumkin", "\(Format.bytes(scan.estimate)) can be freed",
+                                "Можно освободить \(Format.bytes(scan.estimate))")
+        case .running: return T("Bajarilmoqda…", "Working…", "Выполняется…")
+        case .done: return scan.freedReal > 0
+            ? T("Diskda \(Format.bytes(scan.freedReal)) bo'shadi!", "\(Format.bytes(scan.freedReal)) freed on disk!",
+                "На диске освобождено \(Format.bytes(scan.freedReal))!")
+            : T("Tayyor!", "All done!", "Готово!")
+        case .idle: return T("Mac'ingizni tozalaymizmi?", "Ready to clean your Mac?", "Почистим ваш Mac?")
+        }
     }
 
     var subline: String {
-        if junk.lastFreed > 0 && !junk.scanning {
-            return T("\(Format.bytes(junk.lastFreed)) bo'shatildi", "\(Format.bytes(junk.lastFreed)) freed",
-                     "Освобождено \(Format.bytes(junk.lastFreed))")
+        switch scan.phase {
+        case .scanning: return scan.step
+        case .running: return scan.step
+        case .results: return T("Keraksizlarni tanlang va «Bajarish»ni bosing — hammasi bir martada",
+                                "Pick what to include and press Run — everything at once",
+                                "Выберите нужное и нажмите «Выполнить» — всё за один раз")
+        case .done: return T("Bu — taxmin emas, diskda o'lchangan haqiqiy natija", "Measured on disk — not an estimate",
+                             "Измерено на диске — не оценка")
+        case .idle: return T("Bitta tugma: keraksiz fayllar, Savat, snapshotlar, RAM, himoya, yangilanishlar va disk tahlili",
+                             "One click: junk, Trash, snapshots, RAM, protection, updates and disk analysis",
+                             "Одна кнопка: мусор, Корзина, снимки, RAM, защита, обновления и анализ диска")
         }
-        if junk.scannedOnce {
-            return T("\(Format.bytes(junk.total)) keraksiz fayl topildi", "\(Format.bytes(junk.total)) of junk found",
-                     "Найдено \(Format.bytes(junk.total)) мусора")
-        }
-        return T("Bitta tugma — kesh, log, Claude/Electron keshi, Xcode va boshqalar",
-                 "One click — caches, logs, Claude/Electron caches, Xcode and more",
-                 "Одна кнопка — кэши, логи, кэш Claude/Electron, Xcode и другое")
     }
 
     var body: some View {
@@ -353,26 +368,50 @@ struct DashboardView: View {
                 .fadeIn(0)
 
                 Group {
-                    if junk.justCleaned {
+                    switch scan.phase {
+                    case .scanning:
+                        ScanProgressRing(progress: scan.progress).transition(.scale.combined(with: .opacity))
+                    case .done:
                         SuccessBurst().transition(.scale.combined(with: .opacity))
-                    } else if junk.scanning {
-                        ScanProgressRing(progress: junk.progress).transition(.scale.combined(with: .opacity))
-                    } else {
-                        BigScanButton(title: junk.scannedOnce && junk.selectedSize > 0
-                                      ? T("Tozalash", "Clean", "Очистить")
-                                      : T("Skanerlash", "Scan", "Сканировать"),
-                                      busy: junk.cleaning) {
-                            if junk.scannedOnce && junk.selectedSize > 0 { junk.clean() } else { junk.scan() }
+                    case .results:
+                        BigScanButton(title: T("Bajarish", "Run", "Выполнить"), busy: false) { confirmRun = true }
+                            .disabled(!scan.canRun)
+                    case .running:
+                        BigScanButton(title: "", busy: true) {}
+                    case .idle:
+                        if junk.justCleaned {
+                            SuccessBurst().transition(.scale.combined(with: .opacity))
+                        } else {
+                            BigScanButton(title: T("Skanerlash", "Scan", "Сканировать"), busy: false) { scan.scan() }
                         }
                     }
                 }
                 .frame(height: 200)
-                .animation(.spring(response: 0.5, dampingFraction: 0.75), value: junk.scanning)
-                .animation(.spring(response: 0.5, dampingFraction: 0.75), value: junk.justCleaned)
+                .animation(.spring(response: 0.5, dampingFraction: 0.75), value: scan.phase)
+                .confirmationDialog(T("Tanlanganlar tozalansinmi? (~\(Format.bytes(scan.estimate)))",
+                                      "Clean the selected items? (~\(Format.bytes(scan.estimate)))",
+                                      "Очистить выбранное? (~\(Format.bytes(scan.estimate)))"),
+                                    isPresented: $confirmRun) {
+                    Button(T("Bajarish", "Run", "Выполнить"), role: .destructive) { scan.run() }
+                } message: {
+                    Text(T("Savat, eski loyiha fayllari va (yoqilgan bo'lsa) snapshotlarni qaytarib bo'lmaydi. Qolgani Savatga yoki butunlay o'chiriladi — Sozlamalarga qarab.",
+                           "Trash, old project files and (if enabled) snapshots can't be restored. Other items are trashed or deleted per your Settings.",
+                           "Корзину, старые файлы проектов и (если включено) снимки нельзя восстановить. Остальное — в Корзину или удаляется по настройкам."))
+                }
                 .fadeIn(0.05)
 
-                if junk.scannedOnce && !junk.scanning {
-                    Button(T("Batafsil ko'rish", "Review details", "Подробнее")) { go(.junk) }.buttonStyle(GhostButtonStyle())
+                if scan.phase == .results {
+                    SmartScanResults(go: go)
+                    Button(T("Bekor qilish", "Cancel", "Отмена")) { scan.reset() }.buttonStyle(GhostButtonStyle())
+                }
+                if scan.phase == .done {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(scan.notes, id: \.self) { n in
+                            Label(n, systemImage: "checkmark.circle.fill").font(.callout).foregroundColor(Theme.green)
+                        }
+                    }
+                    Button(T("Yana skanerlash", "Scan again", "Сканировать снова")) { scan.reset(); scan.scan() }
+                        .buttonStyle(GhostButtonStyle())
                 }
 
                 HStack(spacing: 14) {
@@ -436,7 +475,7 @@ struct DashboardView: View {
                 SmartTipsCard(go: go).fadeIn(0.2)
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                    ForEach(Array([Panel.large, .uninstaller, .updates, .protection, .dev, .duplicates, .space, .firewall].enumerated()), id: \.element) { i, p in
+                    ForEach(Array([Panel.analyzer, .large, .uninstaller, .updates, .protection, .dev, .space, .firewall].enumerated()), id: \.element) { i, p in
                         HoverTile(action: { go(p) }) {
                             VStack(spacing: 8) {
                                 Image(systemName: p.icon).font(.system(size: 24)).foregroundStyle(Theme.accentGradient)

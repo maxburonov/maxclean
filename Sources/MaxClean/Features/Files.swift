@@ -394,7 +394,7 @@ enum DevScanner {
         var out: [FileEntry] = []
         FS.walk(rootPath) { path, name, st, isDir in
             guard isDir, path != rootPath else { return true }
-            if path == lib || name == ".Trash" || name == ".git" || path.hasPrefix("/System") { return false }
+            if path == lib || name == ".Trash" || name == ".git" || name == "actions-runner" || path.hasPrefix("/System") { return false }
             let parent = (path as NSString).deletingLastPathComponent
             func has(_ n: String) -> Bool { FileManager.default.fileExists(atPath: parent + "/" + n) }
             var kind: String?

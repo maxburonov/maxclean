@@ -274,12 +274,13 @@ final class JunkModel: ObservableObject {
     var total: Int64 { categories.reduce(0) { $0 + $1.total } }
     var selectedSize: Int64 { categories.reduce(0) { $0 + $1.selectedSize } }
 
-    func scan() {
-        guard !scanning else { return }
+    @discardableResult
+    func scan() -> Task<Void, Never>? {
+        guard !scanning else { return nil }
         scanning = true
         message = nil
         progress = 0
-        Task {
+        return Task {
             let ctx = SmartContext.current()
             let cats = await Task.detached(priority: .userInitiated) {
                 JunkScanner.scanAll(ctx: ctx) { p in Task { @MainActor in self.progress = max(self.progress, p) } }
@@ -314,15 +315,16 @@ final class JunkModel: ObservableObject {
     /// "Siz qoldirgansiz" ro'yxatini tozalash.
     static func resetKeep() { UserDefaults.standard.removeObject(forKey: "junkKeep") }
 
-    func clean() {
+    @discardableResult
+    func clean(rescan: Bool = true) -> Task<Void, Never>? {
         let entries = categories.flatMap { $0.items.filter(\.selected) }
-        guard !entries.isEmpty else { return }
+        guard !entries.isEmpty else { return nil }
         let permanent = UserDefaults.standard.object(forKey: "junkPermanent") as? Bool ?? true
         // O'rnatuvchilar va iOS backup'lar har doim faqat Savatga (qaytarib olish mumkin)
         let trashOnly = ["~/Downloads", "~/Library/Application Support/MobileSync/Backup"].map { FS.expand($0).path + "/" }
             + ["/Applications/Install macOS"]
         cleaning = true
-        Task {
+        return Task {
             let r = await Task.detached(priority: .userInitiated) { () -> Remover.Result in
                 // Savatdagi narsalar — doim butunlay o'chiriladi (ularni yana Savatga yuborib bo'lmaydi)
                 let trashLocs = TrashInfo.locations().map { $0.path + "/" }
@@ -353,7 +355,7 @@ final class JunkModel: ObservableObject {
             if !r.failed.isEmpty { text += T(" \(r.failed.count) tasi o'chmadi (band yoki ruxsat yo'q).", " \(r.failed.count) couldn't be removed (in use or no permission).", " \(r.failed.count) не удалено (занято или нет доступа).") }
             self.message = text
             self.scanning = false
-            self.scan()
+            if rescan { self.scan() }
         }
     }
 }
