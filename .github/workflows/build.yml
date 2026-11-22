@@ -1,0 +1,29 @@
+name: Build Max Clean
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Build .app + .dmg
+        run: zsh build.sh "$(cat .version)"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaxClean-${{ github.sha }}
+          path: build/*.dmg
+          if-no-files-found: error
