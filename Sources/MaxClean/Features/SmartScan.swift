@@ -53,6 +53,15 @@ final class SmartScanModel: ObservableObject {
             || (doSnapshots && snapshots > 0) || doRAM
     }
 
+    private var doneSteps = 0.0
+    private let totalSteps = 6.0
+
+    private func tick(_ s: String) {
+        doneSteps += 1
+        withAnimation { progress = doneSteps / totalSteps }
+        step = s
+    }
+
     /// Boshqa ekrandan boshlangan ish tugashini kutish (eskirgan natija bo'lmasin)
     private func settle(_ busy: () -> Bool) async {
         while busy() { try? await Task.sleep(nanoseconds: 250_000_000) }
@@ -64,9 +73,7 @@ final class SmartScanModel: ObservableObject {
         progress = 0
         notes = []
         Task {
-            var done = 0.0
-            let steps = 6.0
-            func tick(_ s: String) { done += 1; withAnimation { progress = done / steps }; step = s }
+            doneSteps = 0
 
             // Tarmoq va og'ir disk tahlili parallel boshlanadi
             await settle { m.updates.checking || m.disk.analyzing }
