@@ -79,7 +79,7 @@ enum SmartAnalyzer {
                                  level: .info, panel: .junk, size: derived))
         }
 
-        let trash = dirSize("~/.Trash")
+        let trash = TrashInfo.size()
         if trash > 500_000_000 {
             tips.append(SmartTip(id: "trash", icon: "trash",
                                  title: T("Savat to'la", "Trash is full", "Корзина переполнена"),
@@ -87,6 +87,38 @@ enum SmartAnalyzer {
                                            "\(Format.bytes(trash)) is sitting in the Trash.",
                                            "В Корзине лежит \(Format.bytes(trash))."),
                                  level: .info, panel: .junk, size: trash))
+        }
+
+        let runner = dirSize("~/actions-runner/_work")
+        if runner > 2_000_000_000 {
+            tips.append(SmartTip(id: "runner", icon: "server.rack",
+                                 title: T("GitHub build-server joy egallagan", "GitHub runner is using space", "GitHub runner занимает место"),
+                                 detail: T("actions-runner'da \(Format.bytes(runner)) build qoldiqlari bor.",
+                                           "actions-runner holds \(Format.bytes(runner)) of build leftovers.",
+                                           "В actions-runner \(Format.bytes(runner)) остатков сборок."),
+                                 level: .warn, panel: .junk, size: runner))
+        }
+
+        let macInstallers = FS.children(URL(fileURLWithPath: "/Applications"))
+            .filter { $0.lastPathComponent.hasPrefix("Install macOS") }
+            .reduce(Int64(0)) { $0 + FS.allocatedSize(of: $1) }
+        if macInstallers > 0 {
+            tips.append(SmartTip(id: "macinstall", icon: "applelogo",
+                                 title: T("Eski macOS o'rnatuvchisi", "Old macOS installer", "Старый установщик macOS"),
+                                 detail: T("\(Format.bytes(macInstallers)) Applications'da — kerak bo'lmasa o'chiring (qayta yuklab olsa bo'ladi).",
+                                           "\(Format.bytes(macInstallers)) in Applications — remove if unused (can be re-downloaded).",
+                                           "\(Format.bytes(macInstallers)) в «Программах» — удалите, если не нужен (можно скачать снова)."),
+                                 level: .info, panel: .junk, size: macInstallers))
+        }
+
+        let ai = dirSize("~/.cache/huggingface/hub") + dirSize("~/.cache/torch")
+        if ai > 5_000_000_000 {
+            tips.append(SmartTip(id: "aimodels", icon: "cpu",
+                                 title: T("AI modellar keshi katta", "Large AI model cache", "Большой кэш AI-моделей"),
+                                 detail: T("\(Format.bytes(ai)) model. Ishlatmayotganlarini o'chirsangiz bo'ladi.",
+                                           "\(Format.bytes(ai)) of models. Remove the ones you no longer use.",
+                                           "\(Format.bytes(ai)) моделей. Удалите неиспользуемые."),
+                                 level: .info, panel: .junk, size: ai))
         }
 
         let installers = FS.children(FS.expand("~/Downloads"))

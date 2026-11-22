@@ -19,6 +19,7 @@ struct JunkSpec: Sendable {
         case whole               // ildizning o'zi
         case extensions([String]) // faqat shu kengaytmali fayllar
         case electronCaches      // har bir ilova papkasidagi Cache/GPUCache...
+        case namePrefix([String]) // nomi shu so'z bilan boshlanadigan elementlar
     }
     let name: String
     let icon: String
@@ -93,9 +94,39 @@ extension JunkSpec {
                  detail: T("iPhone/iPad backup'lari — ehtiyot bo'ling", "iPhone/iPad backups — be careful", "Бэкапы iPhone/iPad — осторожно"),
                  roots: ["~/Library/Application Support/MobileSync/Backup"], mode: .children,
                  defaultSelected: false),
+        JunkSpec(name: T("Eski macOS o'rnatuvchilari", "Old macOS installers", "Старые установщики macOS"), icon: "applelogo",
+                 detail: T("«Install macOS …» ilovalari — har biri 12–15 GB, kerak bo'lsa qayta yuklanadi",
+                           "\"Install macOS …\" apps — 12–15 GB each, re-downloadable",
+                           "Приложения «Установка macOS …» — по 12–15 ГБ, можно скачать снова"),
+                 roots: ["/Applications"], mode: .namePrefix(["Install macOS"]), defaultSelected: false),
+        JunkSpec(name: T("GitHub build-server qoldiqlari", "GitHub runner leftovers", "Остатки GitHub runner"), icon: "server.rack",
+                 detail: T("actions-runner'ning ish papkalari va loglari — build ketmayotganda o'chirish xavfsiz",
+                           "actions-runner work folders and logs — safe to delete when no job is running",
+                           "Рабочие папки и логи actions-runner — удалять, когда сборка не идёт"),
+                 roots: ["~/actions-runner/_work", "~/actions-runner/_diag"], mode: .children,
+                 defaultSelected: false, skip: ["_tool", "_actions"]),
+        JunkSpec(name: T("Python paket arxivlari", "Python package archives", "Архивы Python-пакетов"), icon: "cube.box",
+                 detail: T("conda yuklab olgan .conda / .tar.bz2 arxivlari (o'rnatilganlar o'chmaydi)",
+                           "Downloaded conda .conda / .tar.bz2 archives (installed packages stay)",
+                           "Скачанные архивы conda .conda / .tar.bz2 (установленное остаётся)"),
+                 roots: ["~/miniconda3/pkgs", "~/anaconda3/pkgs", "~/miniforge3/pkgs", "~/.conda/pkgs"],
+                 mode: .extensions(["conda", "bz2"])),
+        JunkSpec(name: T("AI modellar keshi", "AI model caches", "Кэш AI-моделей"), icon: "cpu",
+                 detail: T("Hugging Face va PyTorch yuklab olgan modellar — kerak bo'lsa qayta yuklanadi (katta!)",
+                           "Models downloaded by Hugging Face and PyTorch — re-downloaded when needed (large!)",
+                           "Модели Hugging Face и PyTorch — скачаются снова при необходимости (много места!)"),
+                 roots: ["~/.cache/huggingface/hub", "~/.cache/torch"], mode: .children,
+                 defaultSelected: false),
         JunkSpec(name: T("Savat", "Trash", "Корзина"), icon: "trash",
                  detail: T("Savatdagi fayllar", "Files in the Trash", "Файлы в Корзине"),
-                 roots: ["~/.Trash"], mode: .children)
+                 roots: ["~/.Trash"], mode: .children),
+        // Tashqi disklar (masalan T9) savati — ichki diskda joy bo'shatmaydi, shuning uchun avtomatik tanlanmaydi
+        JunkSpec(name: T("Tashqi disklar savati", "External disks' Trash", "Корзина внешних дисков"), icon: "externaldrive",
+                 detail: T("T9 kabi disklardagi Savat — o'sha diskda joy bo'shatadi",
+                           "Trash on disks like T9 — frees space on that disk",
+                           "Корзина на дисках вроде T9 — освобождает место на них"),
+                 roots: Array(TrashInfo.locations().dropFirst()).map { $0.path }, mode: .children,
+                 defaultSelected: false)
     ] }
 }
 
@@ -135,6 +166,11 @@ struct SmartContext: Sendable {
 
 enum JunkScanner {
     static func scan(_ spec: JunkSpec, ctx: SmartContext = .empty) -> JunkCategory {
+        // GitHub runner hozir build qilayotgan bo'lsa — uning papkalariga umuman tegmaymiz
+        if spec.roots.contains(where: { $0.hasPrefix("~/actions-runner") }),
+           Shell.run("/usr/bin/pgrep", ["-x", "Runner.Worker"]).status == 0 {
+            return JunkCategory(name: spec.name, icon: spec.icon, detail: spec.detail, items: [])
+        }
         var items: [FileEntry] = []
         let dayAgo = Date().addingTimeInterval(-86_400)
         var isCacheLike = spec.roots.contains { $0.contains("Cache") || $0.contains("/Logs") }
@@ -174,6 +210,10 @@ enum JunkScanner {
                 }
             case .extensions(let exts):
                 for c in FS.children(root) where exts.contains(c.pathExtension.lowercased()) {
+                    add(c)
+                }
+            case .namePrefix(let prefixes):
+                for c in FS.children(root) where prefixes.contains(where: { c.lastPathComponent.hasPrefix($0) }) {
                     add(c)
                 }
             case .electronCaches:
@@ -280,14 +320,21 @@ final class JunkModel: ObservableObject {
         let permanent = UserDefaults.standard.object(forKey: "junkPermanent") as? Bool ?? true
         // O'rnatuvchilar va iOS backup'lar har doim faqat Savatga (qaytarib olish mumkin)
         let trashOnly = ["~/Downloads", "~/Library/Application Support/MobileSync/Backup"].map { FS.expand($0).path + "/" }
-        let normal = entries.filter { e in !trashOnly.contains { e.url.path.hasPrefix($0) } }
-        let safe = entries.filter { e in trashOnly.contains { e.url.path.hasPrefix($0) } }
+            + ["/Applications/Install macOS"]
         cleaning = true
         Task {
             let r = await Task.detached(priority: .userInitiated) { () -> Remover.Result in
+                // Savatdagi narsalar — doim butunlay o'chiriladi (ularni yana Savatga yuborib bo'lmaydi)
+                let trashLocs = TrashInfo.locations().map { $0.path + "/" }
+                let inTrash = entries.filter { e in trashLocs.contains { e.url.path.hasPrefix($0) } }
+                let rest = entries.filter { e in !trashLocs.contains { e.url.path.hasPrefix($0) } }
+                let normal = rest.filter { e in !trashOnly.contains { e.url.path.hasPrefix($0) } }
+                let safe = rest.filter { e in trashOnly.contains { e.url.path.hasPrefix($0) } }
                 var a = Remover.remove(normal, permanently: permanent)
+                let t = Remover.remove(inTrash, permanently: true)
+                a.freed += t.freed; a.removed += t.removed; a.failed += t.failed; a.permanentFreed += t.permanentFreed
                 let b = Remover.remove(safe, permanently: false, appendUndo: !permanent && !normal.isEmpty)
-                a.freed += b.freed; a.removed += b.removed; a.failed += b.failed
+                a.freed += b.freed; a.removed += b.removed; a.failed += b.failed; a.permanentFreed += b.permanentFreed
                 return a
             }.value
             self.cleaning = false
@@ -297,7 +344,12 @@ final class JunkModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 3_500_000_000)
                 withAnimation(.easeInOut) { self.justCleaned = false }
             }
-            var text = T("\(Format.bytes(r.freed)) bo'shatildi (\(r.removed) ta element).", "\(Format.bytes(r.freed)) freed (\(r.removed) items).", "Освобождено \(Format.bytes(r.freed)) (\(r.removed) элем.).")
+            let toTrash = r.freed - r.permanentFreed
+            var text = toTrash > 0
+                ? T("\(Format.bytes(r.permanentFreed)) bo'shatildi, \(Format.bytes(toTrash)) Savatga yuborildi.",
+                    "\(Format.bytes(r.permanentFreed)) freed, \(Format.bytes(toTrash)) moved to Trash.",
+                    "Освобождено \(Format.bytes(r.permanentFreed)), \(Format.bytes(toTrash)) — в Корзине.")
+                : T("\(Format.bytes(r.freed)) bo'shatildi (\(r.removed) ta element).", "\(Format.bytes(r.freed)) freed (\(r.removed) items).", "Освобождено \(Format.bytes(r.freed)) (\(r.removed) элем.).")
             if !r.failed.isEmpty { text += T(" \(r.failed.count) tasi o'chmadi (band yoki ruxsat yo'q).", " \(r.failed.count) couldn't be removed (in use or no permission).", " \(r.failed.count) не удалено (занято или нет доступа).") }
             self.message = text
             self.scanning = false

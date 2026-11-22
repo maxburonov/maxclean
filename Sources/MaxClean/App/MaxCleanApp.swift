@@ -263,6 +263,35 @@ struct DashboardView: View {
     @EnvironmentObject var smart: SmartModel
     let go: (Panel) -> Void
     @State private var fda = Permissions.hasFullDiskAccess
+    @State private var trashSize: Int64?
+    @State private var confirmEmpty = false
+    @State private var emptyingTrash = false
+    @State private var trashMeasuredAt = Date.distantPast
+
+    private func measureTrash(force: Bool = false) {
+        guard fda else { return } // ruxsatsiz Savat o'lchanmaydi
+        guard force || Date().timeIntervalSince(trashMeasuredAt) > 120 else { return }
+        trashMeasuredAt = Date()
+        Task {
+            let s = await Task.detached(priority: .utility) { TrashInfo.size() }.value
+            withAnimation { trashSize = s }
+        }
+    }
+
+    private func emptyTrash() {
+        emptyingTrash = true
+        Task {
+            let freed = await Task.detached(priority: .userInitiated) { TrashInfo.empty() }.value
+            emptyingTrash = false
+            junk.lastFreed = freed
+            if junk.scannedOnce { junk.scan() } // eskirgan ro'yxatni yangilaymiz
+            withAnimation(.spring()) { junk.justCleaned = true }
+            measureTrash(force: true)
+            smart.analyze(memory: memory, force: true)
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            withAnimation { junk.justCleaned = false }
+        }
+    }
 
     var headline: String {
         if junk.cleaning { return T("Tozalanmoqda…", "Cleaning…", "Очистка…") }
@@ -367,16 +396,39 @@ struct DashboardView: View {
                         }
                     }
                     Card {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(T("Jami tozalangan", "Total cleaned", "Всего очищено")).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(T("Haqiqatan bo'shatildi", "Actually freed", "Реально освобождено")).foregroundStyle(.secondary)
                             Text(Format.bytes(History.totalFreed))
-                                .font(.system(size: 30, weight: .bold, design: .rounded))
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
                                 .foregroundStyle(Theme.accentGradient)
                                 .numericTransition()
-                            Button(T("RAM bo'shatish", "Free up RAM", "Освободить RAM")) { memory.freeRAM() }
-                                .buttonStyle(GhostButtonStyle())
+                            // Savat: fayllar u yerda turgan ekan, joy bo'shamagan
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash").foregroundColor((trashSize ?? 0) > 1_000_000_000 ? Theme.orange : .secondary)
+                                Text(!fda ? T("Savat: ruxsat kerak", "Trash: needs Full Disk Access", "Корзина: нужен доступ")
+                                     : trashSize.map { T("Savatda: \(Format.bytes($0))", "In Trash: \(Format.bytes($0))", "В Корзине: \(Format.bytes($0))") }
+                                        ?? T("Savat hisoblanmoqda…", "Measuring Trash…", "Подсчёт Корзины…"))
+                                    .font(.caption).numericTransition()
+                            }
+                            if let t = trashSize, t > 0 {
+                                Button(emptyingTrash ? T("Bo'shatilmoqda…", "Emptying…", "Очистка…") : T("Savatni bo'shatish", "Empty Trash", "Очистить Корзину")) {
+                                    confirmEmpty = true
+                                }
+                                .buttonStyle(GlowButtonStyle())
+                                .disabled(emptyingTrash || junk.cleaning)
+                            } else {
+                                Button(T("RAM bo'shatish", "Free up RAM", "Освободить RAM")) { memory.freeRAM() }
+                                    .buttonStyle(GhostButtonStyle())
+                            }
                         }
                         .frame(height: 150)
+                        .confirmationDialog(T("Savat butunlay bo'shatilsinmi?", "Empty the Trash permanently?", "Очистить Корзину навсегда?"),
+                                            isPresented: $confirmEmpty) {
+                            Button(T("Bo'shatish (\(Format.bytes(trashSize ?? 0)))", "Empty (\(Format.bytes(trashSize ?? 0)))",
+                                     "Очистить (\(Format.bytes(trashSize ?? 0)))"), role: .destructive) { emptyTrash() }
+                        } message: {
+                            Text(T("Fayllarni qaytarib bo'lmaydi.", "Files can't be restored afterwards.", "Восстановить файлы будет нельзя."))
+                        }
                     }
                 }
                 .fadeIn(0.12)
@@ -400,9 +452,12 @@ struct DashboardView: View {
             .padding(.top, 36)
             .padding(.bottom, 28)
         }
-        .onAppear { smart.analyze(memory: memory) }
+        .onAppear {
+            smart.analyze(memory: memory)
+            measureTrash()
+        }
         .onChange(of: junk.cleaning) { cleaning in
-            if !cleaning { smart.analyze(memory: memory, force: true) }
+            if !cleaning { smart.analyze(memory: memory, force: true); measureTrash(force: true) }
         }
     }
 }
@@ -562,9 +617,9 @@ struct SettingsView: View {
                                 .buttonStyle(GhostButtonStyle())
                             }
                             if let u = undoMessage { Text(u).font(.caption).foregroundColor(Theme.green) }
-                            Text(T("· jami \(Format.bytes(History.totalFreed)) tozalangan",
-                                   "· \(Format.bytes(History.totalFreed)) cleaned in total",
-                                   "· всего очищено \(Format.bytes(History.totalFreed))")).foregroundStyle(.secondary)
+                            Text(T("· haqiqatan bo'shatildi: \(Format.bytes(History.totalFreed))",
+                                   "· actually freed: \(Format.bytes(History.totalFreed))",
+                                   "· реально освобождено: \(Format.bytes(History.totalFreed))")).foregroundStyle(.secondary)
                             Spacer()
                             Button(T("Yangilash", "Refresh", "Обновить")) { model.reloadLog() }.buttonStyle(GhostButtonStyle())
                             Button(T("Tozalash", "Clear", "Очистить")) { History.clear(); model.reloadLog() }.buttonStyle(GhostButtonStyle())

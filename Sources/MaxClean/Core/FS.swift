@@ -189,6 +189,7 @@ enum Safety {
             h + "/Library/Mobile Documents", h + "/Library/Keychains", h + "/.Trash"
         ]
         if exact.contains(p) { return true }
+        if p.hasPrefix("/Volumes/"), p.hasSuffix("/.Trashes") || p.hasSuffix("/.Trashes/\(getuid())") { return true }
         if protectedPrefixes.contains(where: { p == $0 || p.hasPrefix($0 + "/") }) { return true }
         if p.hasPrefix(h + "/Library/Keychains") { return true }
         // Oq ro'yxatdagi papka yoki uni o'z ichiga olgan ota-papka ham himoyalanadi
@@ -205,6 +206,8 @@ enum Safety {
 enum Remover {
     struct Result: Sendable {
         var freed: Int64 = 0
+        /// Shundan butunlay o'chirilgani (qolgani Savatda)
+        var permanentFreed: Int64 = 0
         var removed = 0
         var failed: [URL] = []
     }
@@ -212,6 +215,7 @@ enum Remover {
     static func remove(_ entries: [FileEntry], permanently: Bool, appendUndo: Bool = false) -> Result {
         var r = Result()
         var trashed: [(String, String)] = []
+        var permanentFreed: Int64 = 0
         defer { if !trashed.isEmpty { UndoStore.save(trashed, append: appendUndo) } }
         for e in entries {
             if Safety.isProtected(e.url) { r.failed.append(e.url); continue }
@@ -225,12 +229,15 @@ enum Remover {
                 }
                 r.freed += e.size
                 r.removed += 1
+                if permanently { permanentFreed += e.size }
                 History.add("\(permanently ? "O'CHIRILDI" : "SAVATGA")\t\(Format.bytes(e.size))\t\(e.url.path)")
             } catch {
                 r.failed.append(e.url)
             }
         }
-        History.addFreed(r.freed)
+        // Faqat haqiqatan o'chirilgani "bo'shatildi" hisoblanadi; Savatga ketgani joy egallashda davom etadi
+        History.addFreed(permanentFreed)
+        r.permanentFreed = permanentFreed
         return r
     }
 }
@@ -245,6 +252,11 @@ enum UndoStore {
         var all = append ? ((UserDefaults.standard.array(forKey: key) as? [[String]]) ?? []) : []
         all += pairs.map { [$0.0, $0.1] }
         UserDefaults.standard.set(all, forKey: key)
+    }
+
+    static func clear() {
+        lock.lock(); defer { lock.unlock() }
+        UserDefaults.standard.removeObject(forKey: key)
     }
 
     static var count: Int {
@@ -296,15 +308,49 @@ enum History {
 
     static func clear() { try? FS.fm.removeItem(at: file) }
 
+    /// Haqiqatan bo'shatilgan joy (0.1.7 dan boshlab; Savatga yuborilganlar kirmaydi).
     static var totalFreed: Int64 {
-        Int64(UserDefaults.standard.double(forKey: "totalFreed"))
+        Int64(UserDefaults.standard.double(forKey: "freedPermanent"))
     }
 
     static func addFreed(_ b: Int64) {
         guard b > 0 else { return }
         lock.lock(); defer { lock.unlock() }
         let d = UserDefaults.standard
-        d.set(d.double(forKey: "totalFreed") + Double(b), forKey: "totalFreed")
+        d.set(d.double(forKey: "freedPermanent") + Double(b), forKey: "freedPermanent")
+    }
+}
+
+// MARK: - Savat (ichki disk + tashqi disklar, masalan T9)
+
+enum TrashInfo {
+    /// ~/.Trash va har bir ulangan diskdagi /Volumes/<disk>/.Trashes/<uid>
+    static func locations() -> [URL] {
+        var out = [FS.home.appendingPathComponent(".Trash")]
+        let uid = getuid()
+        for v in FS.children(URL(fileURLWithPath: "/Volumes")) {
+            let t = v.appendingPathComponent(".Trashes/\(uid)")
+            if FS.exists(t) { out.append(t) }
+        }
+        return out
+    }
+
+    static func size() -> Int64 {
+        locations().reduce(Int64(0)) { $0 + FS.allocatedSize(of: $1) }
+    }
+
+    /// Savatni butunlay bo'shatadi. Bo'shatilgan hajmni qaytaradi.
+    @discardableResult
+    static func empty() -> Int64 {
+        var entries: [FileEntry] = []
+        for loc in locations() {
+            for c in FS.children(loc) where c.lastPathComponent != ".DS_Store" {
+                entries.append(FileEntry(url: c, size: FS.allocatedSize(of: c), modified: nil, selected: true))
+            }
+        }
+        let r = Remover.remove(entries, permanently: true)
+        UndoStore.clear() // Savat bo'shadi — qaytarib bo'lmaydi
+        return r.freed
     }
 }
 
