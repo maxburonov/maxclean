@@ -27,6 +27,7 @@ final class SmartScanModel: ObservableObject {
 
     // Nimalar bajariladi
     @Published var doJunk = true
+    @Published var doBrowsers = true
     @Published var doDev = true
     @Published var doTrash = true
     @Published var doSnapshots = false   // snapshot — oxirgi "qutqaruv" nusxasi, shuning uchun o'zingiz yoqasiz
@@ -44,17 +45,19 @@ final class SmartScanModel: ObservableObject {
     var devSize: Int64 { devItems.reduce(0) { $0 + $1.size } }
 
     /// Taxminan qancha bo'shaydi (snapshotlar kirmaydi — ular aniq o'lchanmaydi)
+    var browserSize: Int64 { m.browsers.safeCacheSize }
+
     var estimate: Int64 {
-        (doJunk ? junkSize : 0) + (doDev ? devSize : 0) + (doTrash ? trashSize : 0)
+        (doJunk ? junkSize : 0) + (doBrowsers ? browserSize : 0) + (doDev ? devSize : 0) + (doTrash ? trashSize : 0)
     }
 
     var canRun: Bool {
-        (doJunk && junkSize > 0) || (doDev && devSize > 0) || (doTrash && trashSize > 0)
+        (doJunk && junkSize > 0) || (doBrowsers && browserSize > 0) || (doDev && devSize > 0) || (doTrash && trashSize > 0)
             || (doSnapshots && snapshots > 0) || doRAM
     }
 
     private var doneSteps = 0.0
-    private let totalSteps = 6.0
+    private let totalSteps = 7.0
 
     private func tick(_ s: String) {
         doneSteps += 1
@@ -92,6 +95,9 @@ final class SmartScanModel: ObservableObject {
                     m.junk.categories[c].items[i].selected = false
                 }
             }
+            tick(T("Brauzerlar…", "Browsers…", "Браузеры…"))
+            await settle { m.browsers.scanning }
+            await m.browsers.scan()?.value
             tick(T("Dasturchi fayllari…", "Developer junk…", "Мусор разработчика…"))
 
             async let dev = Task.detached(priority: .userInitiated) { DevScanner.scan(root: FS.home) }.value
@@ -159,6 +165,12 @@ final class SmartScanModel: ObservableObject {
                 await settle { m.junk.scanning || m.junk.cleaning }
                 await m.junk.clean(rescan: false)?.value
                 if let msg = m.junk.message { notes.append(msg) }
+            }
+            // 2b) Brauzer keshi (faqat kesh, faqat yopiq brauzerlar)
+            if doBrowsers, !m.browsers.browsers.isEmpty {
+                step = T("Brauzer keshi tozalanmoqda…", "Cleaning browser caches…", "Очистка кэша браузеров…")
+                _ = await m.browsers.clean(onlyCache: true).value
+                if let msg = m.browsers.message { notes.append(msg) }
             }
             // 3) Eski loyiha fayllari — siz ko'rib chiqqan ro'yxat
             let dev = devItems
@@ -256,6 +268,7 @@ struct SmartModuleCard: View {
 
 struct SmartScanResults: View {
     @EnvironmentObject var scan: SmartScanModel
+    @EnvironmentObject var browsers: BrowsersModel
     @EnvironmentObject var dev: DevModel
     @EnvironmentObject var junk: JunkModel
     @EnvironmentObject var memory: MemoryModel
@@ -269,6 +282,11 @@ struct SmartScanResults: View {
                                 value: Format.bytes(scan.junkSize),
                                 detail: T("Kesh, log, Claude/Electron, Xcode…", "Caches, logs, Claude/Electron, Xcode…", "Кэш, логи, Claude/Electron, Xcode…"),
                                 color: Theme.accent, isOn: $scan.doJunk, review: { go(.junk) }).fadeIn(0)
+                SmartModuleCard(icon: "globe", title: T("Brauzer keshi", "Browser cache", "Кэш браузеров"),
+                                value: Format.bytes(scan.browserSize),
+                                detail: T("Safari, Chrome, Edge… (ochiqlari o'tkaziladi)", "Safari, Chrome, Edge… (running ones skipped)",
+                                          "Safari, Chrome, Edge… (открытые пропускаются)"),
+                                color: Color(red: 0.2, green: 0.75, blue: 0.95), isOn: $scan.doBrowsers, review: { go(.browsers) }).fadeIn(0.02)
                 SmartModuleCard(icon: "chevron.left.forwardslash.chevron.right", title: T("Eski loyiha fayllari", "Old project junk", "Старые файлы проектов"),
                                 value: Format.bytes(scan.devSize),
                                 detail: T("\(scan.devItems.count) ta — 30+ kun tegilmagan node_modules, venv…",

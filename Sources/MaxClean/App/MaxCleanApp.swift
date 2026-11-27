@@ -29,6 +29,7 @@ struct MaxCleanApp: App {
                 .environmentObject(m.updater)
                 .environmentObject(m.disk)
                 .environmentObject(m.smartScan)
+                .environmentObject(m.browsers)
                 .frame(minWidth: 1080, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .id(lang) // til almashganda butun interfeys qayta chiziladi
@@ -41,7 +42,7 @@ struct MaxCleanApp: App {
 // MARK: - Bo'limlar
 
 enum Panel: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case dashboard, junk, large, duplicates, dev, uninstaller, updates, startup, protection, firewall, memory, maintenance, analyzer, space, settings
+    case dashboard, junk, browsers, large, duplicates, dev, uninstaller, updates, startup, protection, firewall, memory, maintenance, analyzer, space, settings
     var id: String { rawValue }
 
     var title: String {
@@ -59,6 +60,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .space: return T("Disk xaritasi", "Disk Map", "Карта диска")
         case .updates: return T("Yangilanishlar", "Updates", "Обновления")
         case .analyzer: return T("Disk tahlili", "Disk Analyzer", "Анализ диска")
+        case .browsers: return T("Brauzerlar", "Browsers", "Браузеры")
         case .protection: return T("Himoya", "Protection", "Защита")
         case .settings: return T("Sozlamalar", "Settings", "Настройки")
         }
@@ -79,6 +81,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .space: return "circle.hexagongrid"
         case .updates: return "arrow.down.app"
         case .analyzer: return "chart.bar.doc.horizontal"
+        case .browsers: return "globe"
         case .protection: return "checkmark.shield"
         case .settings: return "gearshape"
         }
@@ -92,7 +95,7 @@ struct PanelGroup: Identifiable {
     static var all: [PanelGroup] {
         [
             PanelGroup(title: "", items: [.dashboard]),
-            PanelGroup(title: T("Tozalash", "Cleanup", "Очистка"), items: [.junk, .large, .duplicates, .dev]),
+            PanelGroup(title: T("Tozalash", "Cleanup", "Очистка"), items: [.junk, .browsers, .large, .duplicates, .dev]),
             PanelGroup(title: T("Ilovalar", "Applications", "Приложения"), items: [.uninstaller, .updates, .startup]),
             PanelGroup(title: T("Xavfsizlik", "Security", "Безопасность"), items: [.protection, .firewall]),
             PanelGroup(title: T("Tezlik", "Speed", "Скорость"), items: [.memory, .maintenance]),
@@ -146,6 +149,7 @@ struct RootView: View {
         case .space: SpaceLensView()
         case .updates: UpdatesView()
         case .analyzer: DiskAnalyzerView(go: { selection = $0 })
+        case .browsers: BrowsersView()
         case .protection: ProtectionView()
         case .settings: SettingsView()
         }
@@ -263,6 +267,7 @@ struct SidebarItem: View {
 
 struct DashboardView: View {
     @EnvironmentObject var scan: SmartScanModel
+    @EnvironmentObject var browsers: BrowsersModel
     @EnvironmentObject var dev: DevModel
     @State private var confirmRun = false
     @EnvironmentObject var updater: AutoUpdater

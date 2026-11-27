@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")"
 
-VERSION="${1:-0.1.8}"
+VERSION="${1:-0.1.9}"
 BUILD="$(date +%Y%m%d%H%M)"
 APP="build/Max Clean.app"
 

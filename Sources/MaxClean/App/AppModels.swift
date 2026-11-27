@@ -24,6 +24,7 @@ final class AppModels: ObservableObject {
     let updater = AutoUpdater()
     let disk = DiskAnalyzerModel()
     let smartScan = SmartScanModel()
+    let browsers = BrowsersModel()
     /// Menyu panelidagi matnni yangilash (sozlama o'zgarganda)
     var statusTextChanged: (() -> Void)?
 

@@ -41,9 +41,9 @@ extension JunkSpec {
         JunkSpec(name: T("Foydalanuvchi keshlari", "User caches", "Кэши пользователя"), icon: "archivebox",
                  detail: T("Ilovalar qayta yaratadigan vaqtinchalik fayllar", "Temporary files apps recreate on their own", "Временные файлы, которые приложения создают заново"),
                  roots: ["~/Library/Caches"], mode: .children,
-                 skip: ["com.apple.bird", "CloudKit", "com.apple.HomeKit", "FamilyCircle",
+                 skip: BrowserDef.cacheTopNames.union(["com.apple.bird", "CloudKit", "com.apple.HomeKit", "FamilyCircle",
                         "com.apple.ap.adprivacyd", "uz.max.clean", "com.apple.akd",
-                        "com.anthropic.claudefordesktop", "claude-cli-nodejs"]),
+                        "com.anthropic.claudefordesktop", "claude-cli-nodejs"])),
         JunkSpec(name: T("Claude va AI ilovalar", "Claude & AI apps", "Claude и AI-приложения"), icon: "brain",
                  detail: T("Claude Desktop keshi va VM obrazlari (kerak bo'lsa qayta yuklanadi)", "Claude Desktop cache and VM images (re-downloaded when needed)", "Кэш Claude Desktop и образы VM (скачаются заново при необходимости)"),
                  roots: ["~/Library/Application Support/Claude/vm_bundles",
@@ -59,7 +59,8 @@ extension JunkSpec {
         JunkSpec(name: T("Electron ilovalar keshi", "Electron app caches", "Кэш Electron-приложений"), icon: "bolt.horizontal.circle",
                  detail: T("Slack, Discord, VS Code, Telegram, Figma va boshqalar keshi", "Slack, Discord, VS Code, Telegram, Figma and more", "Slack, Discord, VS Code, Telegram, Figma и другие"),
                  roots: ["~/Library/Application Support"], mode: .electronCaches,
-                 skip: ["Claude", "ChatGPT", "MaxClean"]),
+                 skip: ["Claude", "ChatGPT", "MaxClean", "Google", "Microsoft Edge", "BraveSoftware",
+                        "com.operasoftware.Opera", "Arc", "Yandex", "Firefox"]),
         JunkSpec(name: T("Foydalanuvchi loglari", "User logs", "Логи пользователя"), icon: "doc.text",
                  detail: T("Ilova jurnallari va crash hisobotlari", "App logs and crash reports", "Журналы приложений и отчёты о сбоях"),
                  roots: ["~/Library/Logs"], mode: .children, skip: ["Claude"]),
@@ -205,7 +206,13 @@ enum JunkScanner {
                 add(root, note: root.deletingLastPathComponent().path,
                     appFolder: root.deletingLastPathComponent().lastPathComponent)
             case .children:
+                let isUserCaches = root.path == FS.home.appendingPathComponent("Library/Caches").path
                 for c in FS.children(root) where !spec.skip.contains(c.lastPathComponent) && c.lastPathComponent != ".DS_Store" {
+                    // ~/Library/Caches/Google: Chrome — Brauzerlar bo'limida; qolgani (Android Studio va h.k.) — shu yerda
+                    if isUserCaches, c.lastPathComponent == "Google" {
+                        for g in FS.children(c) where g.lastPathComponent != "Chrome" && g.lastPathComponent != ".DS_Store" { add(g) }
+                        continue
+                    }
                     add(c)
                 }
             case .extensions(let exts):
